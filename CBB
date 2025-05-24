@@ -1,0 +1,677 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "                                      😜CBB😜",
+   Icon = "croissant",
+   LoadingTitle = "CBB Hub",
+   LoadingSubtitle = "by bppks",
+   Theme = "Amethyst",
+   ToggleUIKeybind = Enum.KeyCode.RightAlt,
+   DisableRayfieldPrompts = false,
+   DisableBuildWarnings = false,
+   ConfigurationSaving = {
+      Enabled = false,
+      FolderName = nil,
+      FileName = "CBB Hub"
+   },
+   Discord = {
+      Enabled = false,
+      Invite = "noinvitelink",
+      RememberJoins = true
+   },
+   KeySystem = true,
+   KeySettings = {
+      Title = "CBB | Key",
+      Subtitle = "Key System",
+      Note = "Be a good boy and you will get the key",
+      FileName = "CBBkey",
+      SaveKey = false,
+      GrabKeyFromSite = true,
+      Key = {"https://pastebin.com/raw/z9HnSX6f"}
+   }
+})
+
+local MainTab = Window:CreateTab("Aimbot", "Crosshair")
+local MainSection = MainTab:CreateSection("Main")
+
+-- Add ESP tab with icon
+local ESPTab = Window:CreateTab("ESP", "Eye")
+local ESPSection = ESPTab:CreateSection("ESP Features")
+
+-- Aimbot toggle state
+local aimbotEnabled = false
+local aimbotWallCheck = false
+local aimbotTeamCheck = false
+
+MainTab:CreateToggle({
+   Name = "Aimbot",
+   CurrentValue = false,
+   Callback = function(Value)
+      aimbotEnabled = Value
+      Rayfield:Notify({
+         Title = "Aimbot",
+         Content = "Aimbot is now " .. (aimbotEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "Aimbot Wall Check",
+   CurrentValue = false,
+   Callback = function(Value)
+      aimbotWallCheck = Value
+      print("Aimbot Wall Check set to:", aimbotWallCheck)
+      Rayfield:Notify({
+         Title = "Aimbot",
+         Content = "Wall Check is now " .. (aimbotWallCheck and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+MainTab:CreateToggle({
+   Name = "Aimbot Team Check (Ignore teammates)",
+   CurrentValue = false,
+   Callback = function(Value)
+      aimbotTeamCheck = Value
+      Rayfield:Notify({
+         Title = "Aimbot",
+         Content = "Aimbot Team Check is now " .. (aimbotTeamCheck and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Thickness = 2
+FOVCircle.Filled = false
+FOVCircle.Radius = 100
+FOVCircle.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
+
+MainTab:CreateToggle({
+   Name = "Show FOV",
+   CurrentValue = false,
+   Callback = function(Value)
+      FOVCircle.Visible = Value
+      Rayfield:Notify({
+         Title = "FOV",
+         Content = "FOV Circle is now " .. (FOVCircle.Visible and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+local Slider = MainTab:CreateSlider({
+   Name = "Aimbot FOV Radius",
+   Range = {0, 1000},
+   Increment = 5,
+   Suffix = "Pixels",
+   CurrentValue = 100,
+   Flag = "AimbotFOV",
+   Callback = function(Value)
+      FOVCircle.Radius = Value
+   end,
+})
+
+game:GetService("RunService").RenderStepped:Connect(function()
+   FOVCircle.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X / 2, workspace.CurrentCamera.ViewportSize.Y / 2)
+end)
+
+-- Helper: Checks if a target is within the FOV
+local function IsTargetInFOV(targetPosition)
+   local screenPosition, onScreen = workspace.CurrentCamera:WorldToViewportPoint(targetPosition)
+   if onScreen then
+      local distance = (Vector2.new(screenPosition.X, screenPosition.Y) - FOVCircle.Position).Magnitude
+      return distance <= FOVCircle.Radius
+   end
+   return false
+end
+
+-- Helper: Get all valid targets
+local function GetAllTargets()
+   local targets = {}
+   for _, player in ipairs(Players:GetPlayers()) do
+      if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
+         if not aimbotTeamCheck or player.Team ~= LocalPlayer.Team then
+            table.insert(targets, player)
+         end
+      end
+   end
+   return targets
+end
+
+-- Helper: Get the position of a target's head
+local function GetTargetPosition(target)
+   if target.Character and target.Character:FindFirstChild("Head") then
+      return target.Character.Head.Position
+   end
+   return nil
+end
+
+-- Raycast wall check: returns true if there is a clear line of sight
+local function IsVisible(target)
+    local char = LocalPlayer.Character
+    local head = char and char:FindFirstChild("Head")
+    local targetChar = target.Character
+    local targetHead = targetChar and targetChar:FindFirstChild("Head")
+    if not (head and targetHead) then return false end
+
+    local origin = head.Position
+    local direction = (targetHead.Position - origin)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {char}
+    raycastParams.IgnoreWater = true
+
+    local result = workspace:Raycast(origin, direction, raycastParams)
+    if not result then
+        return true
+    end
+    if result.Instance and result.Instance:IsDescendantOf(targetChar) then
+        return true
+    end
+    return false
+end
+
+-- Helper: Find closest target in FOV, with wall check if enabled
+local function GetClosestTarget()
+   local closestTarget = nil
+   local closestDistance = math.huge
+   for _, target in ipairs(GetAllTargets()) do
+      local pos = GetTargetPosition(target)
+      if pos then
+         local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(pos)
+         if onScreen then -- Only consider targets whose head is on screen
+            local visible = true
+            if aimbotWallCheck then
+               visible = IsVisible(target)
+            end
+            if IsTargetInFOV(pos) and visible then
+               local dist = (Vector2.new(screenPos.X, screenPos.Y) - FOVCircle.Position).Magnitude
+               if dist < closestDistance then
+                  closestDistance = dist
+                  closestTarget = target
+               end
+            end
+         end
+      end
+   end
+   return closestTarget
+end
+
+local aimbotSensitivity = 0.2
+
+local SensSlider = MainTab:CreateSlider({
+   Name = "Aimbot Sensitivity",
+   Range = {0.01, 1},
+   Increment = 0.01,
+   Suffix = "",
+   CurrentValue = 0.2,
+   Flag = "AimbotSensitivity",
+   Callback = function(Value)
+      aimbotSensitivity = Value
+   end,
+})
+
+local UserInputService = game:GetService("UserInputService")
+
+local aimbotKey = Enum.KeyCode.E
+local aimbotKeyHeld = false
+
+local function GetKeyName(input)
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        return tostring(input.KeyCode)
+    elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+        return "MouseButton1 (LMB)"
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        return "MouseButton2 (RMB)"
+    elseif input.UserInputType == Enum.UserInputType.MouseButton3 then
+        return "MouseButton3 (MMB)"
+    else
+        return tostring(input.UserInputType)
+    end
+end
+
+MainTab:CreateButton({
+    Name = "Set Aimbot Hold Key (Click then press key/mouse)",
+    Callback = function()
+        print("Press any key or mouse button to set as aimbot hold key...")
+        local conn
+        conn = UserInputService.InputBegan:Connect(function(input, processed)
+            if not processed then
+                if input.UserInputType == Enum.UserInputType.Keyboard then
+                    aimbotKey = input.KeyCode
+                elseif input.UserInputType == Enum.UserInputType.MouseButton1 or
+                       input.UserInputType == Enum.UserInputType.MouseButton2 or
+                       input.UserInputType == Enum.UserInputType.MouseButton3 then
+                    aimbotKey = input.UserInputType
+                else
+                    return
+                end
+                print("Aimbot hold key set to:", GetKeyName(input))
+                Rayfield:Notify({
+                    Title = "Aimbot Keybind Set",
+                    Content = "Now holding: " .. GetKeyName(input),
+                    Duration = 2
+                })
+                conn:Disconnect()
+            end
+        end)
+    end,
+})
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if not processed then
+        if (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == aimbotKey)
+        or (input.UserInputType ~= Enum.UserInputType.Keyboard and input.UserInputType == aimbotKey) then
+            aimbotKeyHeld = true
+        end
+    end
+end)
+UserInputService.InputEnded:Connect(function(input, processed)
+    if (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == aimbotKey)
+    or (input.UserInputType ~= Enum.UserInputType.Keyboard and input.UserInputType == aimbotKey) then
+        aimbotKeyHeld = false
+    end
+end)
+
+game:GetService("RunService").RenderStepped:Connect(function()
+   if aimbotEnabled and aimbotKeyHeld then
+      local target = GetClosestTarget()
+      if target then
+         local pos = GetTargetPosition(target)
+         if pos then
+            local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(pos)
+            if onScreen then
+               local mouse = Players.LocalPlayer:GetMouse()
+               local mouseLocation = UserInputService:GetMouseLocation()
+               local delta = Vector2.new(screenPos.X, screenPos.Y) - mouseLocation
+               mousemoverel(delta.X * aimbotSensitivity, delta.Y * aimbotSensitivity)
+            end
+         end
+      end
+   end
+end)
+
+-- ESP state and feature toggles
+local espEnabled = false
+local espTracersEnabled = false
+local espBoxesEnabled = false
+local espNamesEnabled = false
+local espDistancesEnabled = false
+local espHealthEnabled = false
+
+local espTracerColor = Color3.fromRGB(0, 255, 0)
+local espBoxColor = Color3.fromRGB(255, 0, 0)
+local espNameColor = Color3.fromRGB(255, 255, 255)
+local espDistanceColor = Color3.fromRGB(255, 255, 0)
+local espHealthColor = Color3.fromRGB(0, 255, 0)
+
+local espTeamCheck = false
+local espTeamColors = false
+
+local function UpdateAllESPColors()
+   for _, drawings in pairs(espDrawings) do
+      if drawings[1] then drawings[1].Color = espTracerColor end
+      if drawings[2] then drawings[2].Color = espBoxColor end
+      if drawings[3] then drawings[3].Color = espNameColor end
+      if drawings[4] then drawings[4].Color = espDistanceColor end
+      if drawings[5] then drawings[5].Color = espHealthColor end
+   end
+end
+
+ESPTab:CreateToggle({
+   Name = "ESP",
+   CurrentValue = false,
+   Callback = function(Value)
+      espEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP is now " .. (espEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPTab:CreateToggle({
+   Name = "Tracers",
+   CurrentValue = false,
+   Callback = function(Value)
+      espTracersEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "Tracers " .. (espTracersEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+ESPTab:CreateToggle({
+   Name = "Boxes",
+   CurrentValue = false,
+   Callback = function(Value)
+      espBoxesEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "Boxes " .. (espBoxesEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+ESPTab:CreateToggle({
+   Name = "Names",
+   CurrentValue = false,
+   Callback = function(Value)
+      espNamesEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "Names " .. (espNamesEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+ESPTab:CreateToggle({
+   Name = "Distances",
+   CurrentValue = false,
+   Callback = function(Value)
+      espDistancesEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "Distances " .. (espDistancesEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+ESPTab:CreateToggle({
+   Name = "Health",
+   CurrentValue = false,
+   Callback = function(Value)
+      espHealthEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "Health " .. (espHealthEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+ESPTab:CreateToggle({
+   Name = "Team Check (Hide teammates)",
+   CurrentValue = false,
+   Callback = function(Value)
+      espTeamCheck = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "Team Check is now " .. (espTeamCheck and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+ESPTab:CreateToggle({
+   Name = "Team Colors",
+   CurrentValue = false,
+   Callback = function(Value)
+      espTeamColors = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "Team Colors are now " .. (espTeamColors and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPTab:CreateColorPicker({
+   Name = "Tracer Color",
+   Color = espTracerColor,
+   Callback = function(color)
+      espTracerColor = color
+      UpdateAllESPColors()
+   end,
+})
+ESPTab:CreateColorPicker({
+   Name = "Box Color",
+   Color = espBoxColor,
+   Callback = function(color)
+      espBoxColor = color
+      UpdateAllESPColors()
+   end,
+})
+ESPTab:CreateColorPicker({
+   Name = "Name Color",
+   Color = espNameColor,
+   Callback = function(color)
+      espNameColor = color
+      UpdateAllESPColors()
+   end,
+})
+ESPTab:CreateColorPicker({
+   Name = "Distance Color",
+   Color = espDistanceColor,
+   Callback = function(color)
+      espDistanceColor = color
+      UpdateAllESPColors()
+   end,
+})
+ESPTab:CreateColorPicker({
+   Name = "Health Color",
+   Color = espHealthColor,
+   Callback = function(color)
+      espHealthColor = color
+      UpdateAllESPColors()
+   end,
+})
+
+local RunService = game:GetService("RunService")
+local espDrawings = {}
+
+local function ClearESP(player)
+   if espDrawings[player] then
+      for _, drawing in pairs(espDrawings[player]) do
+         drawing:Remove()
+      end
+      espDrawings[player] = nil
+   end
+end
+
+local function CreateESP(player)
+   if player == LocalPlayer then return end
+   espDrawings[player] = {}
+
+   local tracer = Drawing.new("Line")
+   tracer.Visible = false
+   tracer.Color = espTracerColor
+   tracer.Thickness = 2
+   table.insert(espDrawings[player], tracer)
+
+   local box = Drawing.new("Square")
+   box.Visible = false
+   box.Color = espBoxColor
+   box.Thickness = 2
+   box.Filled = false
+   table.insert(espDrawings[player], box)
+
+   local nameText = Drawing.new("Text")
+   nameText.Visible = false
+   nameText.Color = espNameColor
+   nameText.Size = 16
+   nameText.Center = true
+   nameText.Outline = true
+   table.insert(espDrawings[player], nameText)
+
+   local distText = Drawing.new("Text")
+   distText.Visible = false
+   distText.Color = espDistanceColor
+   distText.Size = 14
+   distText.Center = true
+   distText.Outline = true
+   table.insert(espDrawings[player], distText)
+
+   local healthText = Drawing.new("Text")
+   healthText.Visible = false
+   healthText.Color = espHealthColor
+   healthText.Size = 14
+   healthText.Center = true
+   healthText.Outline = true
+   table.insert(espDrawings[player], healthText)
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+   if player ~= LocalPlayer then
+      CreateESP(player)
+   end
+end
+
+Players.PlayerAdded:Connect(function(player)
+   CreateESP(player)
+end)
+Players.PlayerRemoving:Connect(function(player)
+   ClearESP(player)
+end)
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+local espBoxCache = {}
+
+RunService.RenderStepped:Connect(function()
+   for _, player in ipairs(Players:GetPlayers()) do
+      if player ~= LocalPlayer and espDrawings[player] then
+         if espTeamCheck and player.Team == LocalPlayer.Team then
+            for _, drawing in ipairs(espDrawings[player]) do
+               drawing.Visible = false
+            end
+            espBoxCache[player] = nil
+         else
+            local char = player.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local head = char and char:FindFirstChild("Head")
+            local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+            local screenPos, onScreen = hrp and workspace.CurrentCamera:WorldToViewportPoint(hrp.Position) or {0,0}, false
+            if hrp then screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(hrp.Position) end
+
+            if espDrawings[player] then
+               local box = espDrawings[player][2]
+               local tracer = espDrawings[player][1]
+               local teamColor = (player.Team and player.Team.TeamColor and player.Team.TeamColor.Color) or espBoxColor
+               if espTeamColors then
+                  box.Color = teamColor
+                  tracer.Color = teamColor
+               else
+                  box.Color = espBoxColor
+                  tracer.Color = espTracerColor
+               end
+            end
+
+            local tracer = espDrawings[player][1]
+            tracer.Visible = espEnabled and espTracersEnabled and onScreen
+            if tracer.Visible then
+               tracer.From = Vector2.new(workspace.CurrentCamera.ViewportSize.X/2, workspace.CurrentCamera.ViewportSize.Y)
+               tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+            end
+
+            local box = espDrawings[player][2]
+            box.Visible = espEnabled and espBoxesEnabled and onScreen and head and hrp
+            if box.Visible then
+               local boxHeight = 6
+               local boxWidth = 3
+               local center = hrp.Position
+               local corners = {
+                   Vector3.new(-boxWidth/2,  boxHeight/2, 0),
+                   Vector3.new( boxWidth/2,  boxHeight/2, 0),
+                   Vector3.new(-boxWidth/2, -boxHeight/2, 0),
+                   Vector3.new( boxWidth/2, -boxHeight/2, 0),
+               }
+               local points2D = {}
+               for _, offset in ipairs(corners) do
+                   local worldPoint = center + offset
+                   local screenPoint, vis = workspace.CurrentCamera:WorldToViewportPoint(worldPoint)
+                   if not vis then
+                       box.Visible = false
+                       break
+                   end
+                   table.insert(points2D, Vector2.new(screenPoint.X, screenPoint.Y))
+               end
+               if #points2D == 4 then
+                   local minX, minY = math.huge, math.huge
+                   local maxX, maxY = -math.huge, -math.huge
+                   for _, pt in ipairs(points2D) do
+                       minX = math.min(minX, pt.X)
+                       minY = math.min(minY, pt.Y)
+                       maxX = math.max(maxX, pt.X)
+                       maxY = math.max(maxY, pt.Y)
+                   end
+                   local boxPos = Vector2.new(minX, minY)
+                   local boxSize = Vector2.new(maxX - minX, maxY - minY)
+                   espBoxCache[player] = espBoxCache[player] or {pos = boxPos, size = boxSize}
+                   local prev = espBoxCache[player]
+                   local smoothness = 0.5
+                   prev.pos = Vector2.new(lerp(prev.pos.X, boxPos.X, smoothness), lerp(prev.pos.Y, boxPos.Y, smoothness))
+                   prev.size = Vector2.new(lerp(prev.size.X, boxSize.X, smoothness), lerp(prev.size.Y, boxSize.Y, smoothness))
+                   box.Position = prev.pos
+                   box.Size = prev.size
+               else
+                   box.Visible = false
+                   espBoxCache[player] = nil
+               end
+            else
+               espBoxCache[player] = nil
+            end
+
+            local nameText = espDrawings[player][3]
+            nameText.Color = espNameColor
+            nameText.Visible = espEnabled and espNamesEnabled and onScreen
+            if nameText.Visible then
+               nameText.Text = player.Name
+               nameText.Position = Vector2.new(screenPos.X, (head and workspace.CurrentCamera:WorldToViewportPoint(head.Position).Y or screenPos.Y) - 20)
+            end
+
+            local distText = espDrawings[player][4]
+            distText.Color = espDistanceColor
+            distText.Visible = espEnabled and espDistancesEnabled and onScreen and hrp
+            if distText.Visible then
+               local dist = math.floor((LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and (LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude) or 0)
+               distText.Text = tostring(dist) .. "m"
+               distText.Position = Vector2.new(screenPos.X, (head and workspace.CurrentCamera:WorldToViewportPoint(head.Position).Y or screenPos.Y) - 5)
+            end
+
+            local health = humanoid and math.floor(humanoid.Health)
+            local healthText = espDrawings[player][5]
+            healthText.Color = espHealthColor
+            healthText.Visible = espEnabled and espHealthEnabled and onScreen and humanoid
+            if healthText.Visible then
+               healthText.Text = "HP: " .. tostring(health)
+               healthText.Position = Vector2.new(screenPos.X, (head and workspace.CurrentCamera:WorldToViewportPoint(head.Position).Y or screenPos.Y) + 10)
+            end
+         end
+      end
+   end
+end)
+
+-- Add this check in your RenderStepped ESP loop, after getting 'player', 'char', etc.
+if espTeamCheck and player.Team == LocalPlayer.Team then
+   -- Hide all ESP for teammates
+   for _, drawing in ipairs(espDrawings[player]) do
+      drawing.Visible = false
+   end
+   espBoxCache[player] = nil
+else
+   -- For box and tracer color, use team color if enabled:
+   if espDrawings[player] then
+      local box = espDrawings[player][2]
+      local tracer = espDrawings[player][1]
+      local teamColor = (player.Team and player.Team.TeamColor and player.Team.TeamColor.Color) or espBoxColor
+
+      if espTeamColors then
+         box.Color = teamColor
+         tracer.Color = teamColor
+      else
+         box.Color = espBoxColor
+         tracer.Color = espTracerColor
+      end
+   end
+end
