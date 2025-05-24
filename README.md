@@ -1,1 +1,1 @@
-# CBB
+Add me on Discord: bppks
