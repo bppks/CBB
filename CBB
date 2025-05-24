@@ -675,3 +675,28 @@ else
       end
    end
 end
+
+import math
+
+function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+function smooth_aim(current_angle, target_angle, smoothing)
+    smoothing = smoothing or 0.2 -- Default smoothing factor
+    local new_angle = lerp(current_angle, target_angle, smoothing)
+    return new_angle
+end
+
+-- Example usage:
+local current_x, current_y = 100, 100
+local target_x, target_y = 200, 200
+
+-- Calculate angle to target
+local dx = target_x - current_x
+local dy = target_y - current_y
+local target_angle = math.atan2(dy, dx)
+
+-- Smoothly move current angle towards target angle
+local current_angle = 0  -- Example starting angle
+local smoothed_angle = smooth_aim(current_angle, target_angle, 0.1)
