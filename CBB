@@ -525,27 +525,19 @@ Players.PlayerRemoving:Connect(function(player)
     ClearESP(player)
 end)
 
-local function getBoundingBoxCorners(char)
-    local min, max
-    for _, part in ipairs(char:GetChildren()) do
-        if part:IsA("BasePart") then
-            if not min then
-                min, max = part.Position, part.Position
-            else
-                min = Vector3.new(math.min(min.X, part.Position.X), math.min(min.Y, part.Position.Y), math.min(min.Z, part.Position.Z))
-                max = Vector3.new(math.max(max.X, part.Position.X), math.max(max.Y, part.Position.Y), math.max(max.Z, part.Position.Z))
-            end
-        end
-    end
-    return min, max
-end
+-- OPTIMIZED ESP UPDATE LOOP
+local camera = workspace.CurrentCamera
+local lastESPUpdate = 0
+local ESP_UPDATE_INTERVAL = 0.1 -- seconds (10 FPS for ESP)
 
-RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function(dt)
+    lastESPUpdate = lastESPUpdate + dt
+    if lastESPUpdate < ESP_UPDATE_INTERVAL then return end
+    lastESPUpdate = 0
+
     if not espEnabled then
         for _, drawings in pairs(espDrawings) do
-            for _, obj in pairs(drawings) do
-                obj.Visible = false
-            end
+            for _, obj in pairs(drawings) do obj.Visible = false end
         end
         return
     end
@@ -561,51 +553,24 @@ RunService.RenderStepped:Connect(function()
             -- Team check
             if espTeamCheck and player.Team == LocalPlayer.Team then
                 for _, obj in pairs(d) do obj.Visible = false end
-                continue
+                goto continue
             end
 
-            -- Get color for team
             local teamColor = (espTeamColors and player.Team and player.Team.TeamColor and player.Team.TeamColor.Color) or espBoxColor
+            if not (hrp and head) then for _, obj in pairs(d) do obj.Visible = false end goto continue end
 
-            -- Calculate on-screen position
-            local min, max = getBoundingBoxCorners(char)
-            if not min or not max then
-                for _, obj in pairs(d) do obj.Visible = false end
-                continue
-            end
+            local headScreen, vis1 = camera:WorldToViewportPoint(head.Position)
+            local hrpScreen, vis2 = camera:WorldToViewportPoint(hrp.Position)
+            if not (vis1 and vis2) then for _, obj in pairs(d) do obj.Visible = false end goto continue end
 
-            -- Project corners to screen
-            local corners = {
-                Vector3.new(min.X, min.Y, min.Z),
-                Vector3.new(max.X, min.Y, min.Z),
-                Vector3.new(min.X, max.Y, min.Z),
-                Vector3.new(max.X, max.Y, min.Z),
-                Vector3.new(min.X, min.Y, max.Z),
-                Vector3.new(max.X, min.Y, max.Z),
-                Vector3.new(min.X, max.Y, max.Z),
-                Vector3.new(max.X, max.Y, max.Z),
-            }
-            local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
-            local onScreen = false
-            for _, pt in ipairs(corners) do
-                local screenPt, visible = workspace.CurrentCamera:WorldToViewportPoint(pt)
-                if visible then
-                    onScreen = true
-                    minX = math.min(minX, screenPt.X)
-                    minY = math.min(minY, screenPt.Y)
-                    maxX = math.max(maxX, screenPt.X)
-                    maxY = math.max(maxY, screenPt.Y)
-                end
-            end
-            if not onScreen then
-                for _, obj in pairs(d) do obj.Visible = false end
-                continue
-            end
-
-            -- Box
+            -- Box (simple: from head to HRP)
             d.box.Color = teamColor
             d.box.Visible = espBoxesEnabled
             if d.box.Visible then
+                local minX = math.min(headScreen.X, hrpScreen.X)
+                local minY = math.min(headScreen.Y, hrpScreen.Y)
+                local maxX = math.max(headScreen.X, hrpScreen.X)
+                local maxY = math.max(headScreen.Y, hrpScreen.Y)
                 d.box.Position = Vector2.new(minX, minY)
                 d.box.Size = Vector2.new(maxX - minX, maxY - minY)
             end
@@ -614,54 +579,36 @@ RunService.RenderStepped:Connect(function()
             d.tracer.Color = teamColor
             d.tracer.Visible = espTracersEnabled
             if d.tracer.Visible then
-                d.tracer.From = Vector2.new(workspace.CurrentCamera.ViewportSize.X/2, workspace.CurrentCamera.ViewportSize.Y)
-                local hrpScreen, vis = hrp and workspace.CurrentCamera:WorldToViewportPoint(hrp.Position)
-                if vis then
-                    d.tracer.To = Vector2.new(hrpScreen.X, hrpScreen.Y)
-                else
-                    d.tracer.Visible = false
-                end
+                d.tracer.From = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y)
+                d.tracer.To = Vector2.new(hrpScreen.X, hrpScreen.Y)
             end
 
             -- Names
             d.nameText.Color = espNameColor
             d.nameText.Visible = espNamesEnabled
             if d.nameText.Visible then
-                local headScreen, vis = head and workspace.CurrentCamera:WorldToViewportPoint(head.Position)
-                if vis then
-                    d.nameText.Text = player.Name
-                    d.nameText.Position = Vector2.new(headScreen.X, headScreen.Y - 20)
-                else
-                    d.nameText.Visible = false
-                end
+                d.nameText.Text = player.Name
+                d.nameText.Position = Vector2.new(headScreen.X, headScreen.Y - 20)
             end
 
             -- Distance
             d.distText.Color = espDistanceColor
             d.distText.Visible = espDistancesEnabled
-            if d.distText.Visible and hrp and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            if d.distText.Visible and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
                 local dist = (LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
-                local headScreen, vis = head and workspace.CurrentCamera:WorldToViewportPoint(head.Position)
-                if vis then
-                    d.distText.Text = string.format("%.1f m", dist)
-                    d.distText.Position = Vector2.new(headScreen.X, headScreen.Y - 5)
-                else
-                    d.distText.Visible = false
-                end
+                d.distText.Text = string.format("%.1f m", dist)
+                d.distText.Position = Vector2.new(headScreen.X, headScreen.Y - 5)
             end
 
             -- Health
             d.healthText.Color = espHealthColor
             d.healthText.Visible = espHealthEnabled
             if d.healthText.Visible and humanoid then
-                local headScreen, vis = head and workspace.CurrentCamera:WorldToViewportPoint(head.Position)
-                if vis then
-                    d.healthText.Text = "HP: " .. math.floor(humanoid.Health)
-                    d.healthText.Position = Vector2.new(headScreen.X, headScreen.Y + 10)
-                else
-                    d.healthText.Visible = false
-                end
+                d.healthText.Text = "HP: " .. math.floor(humanoid.Health)
+                d.healthText.Position = Vector2.new(headScreen.X, headScreen.Y + 10)
             end
+
+            ::continue::
         end
     end
 end)
