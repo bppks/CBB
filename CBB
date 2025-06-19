@@ -14,7 +14,7 @@ local espNamesEnabled = true
 local espDistancesEnabled = true
 local espHealthEnabled = true
 
-local aimbotFOV = 120 -- degrees
+local aimbotFOV = 120 -- degrees (used as pixel radius approx)
 local aimbotSmoothing = 0.3 -- smaller is faster snap
 local aimbotKey = Enum.KeyCode.E -- hold to aim
 
@@ -26,7 +26,6 @@ FOVCircle.Color = Color3.new(1, 0, 0)
 FOVCircle.Radius = 150
 FOVCircle.Filled = false
 FOVCircle.Visible = true
--- Position it centered on screen initially:
 FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
 -- Update FOVCircle position on viewport resize
@@ -34,60 +33,58 @@ Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
     FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 end)
 
--- To toggle aimbot with key hold
+-- Toggle aimbot active on key hold
 local aimbotActive = false
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and input.KeyCode == aimbotKey then
         aimbotActive = true
     end
 end)
-
 UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == aimbotKey then
         aimbotActive = false
     end
 end)
 
--- Helper function: Check if character is alive & visible
+-- Helper function: Check if player character is valid and alive
 local function IsValidTarget(player)
-    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
-        return false
-    end
-    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+    local character = player.Character
+    if not character then return false end
+
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health <= 0 then
         return false
     end
-    return true
-end
 
--- Helper: World to screen position and visibility check
-local function GetScreenPosition(part)
-    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-    return Vector2.new(screenPos.X, screenPos.Y), onScreen and screenPos.Z > 0
+    return true
 end
 
 -- Cache ESP drawings per player
 local espDrawings = {}
 
--- Main loop timers
+-- Throttling variables
 local aimThrottle = 0
 local espThrottle = 0
-local aimInterval = 1/15 -- 15 times per second for aimbot
-local espInterval = 1/10 -- 10 times per second for ESP
+local aimInterval = 1 / 15 -- 15 times per second for aimbot
+local espInterval = 1 / 10 -- 10 times per second for ESP
 
 RunService.RenderStepped:Connect(function(dt)
     aimThrottle = aimThrottle + dt
     espThrottle = espThrottle + dt
 
+    -- Get mouse position safely
     local mouse = LocalPlayer:GetMouse()
     local mousePos = Vector2.new(mouse.X, mouse.Y)
 
-    -- Aimbot logic throttled
+    -- Aimbot logic
     if aimbotEnabled and aimbotActive and aimThrottle >= aimInterval then
         aimThrottle = 0
 
         local closestPlayer = nil
-        local closestDistance = aimbotFOV
+        local closestDistance = FOVCircle.Radius -- use FOVCircle radius as max distance
 
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and IsValidTarget(player) then
@@ -95,31 +92,25 @@ RunService.RenderStepped:Connect(function(dt)
                 local screenPos, visible = Camera:WorldToViewportPoint(rootPart.Position)
                 if visible and screenPos.Z > 0 then
                     local screenPos2D = Vector2.new(screenPos.X, screenPos.Y)
-                    local distanceFromMouse = (screenPos2D - mousePos).Magnitude
+                    local distFromMouse = (screenPos2D - mousePos).Magnitude
 
-                    -- Convert aimbotFOV degrees to pixels approx (circle radius)
-                    -- We'll use FOVCircle radius for reference
-                    if distanceFromMouse < closestDistance and distanceFromMouse <= FOVCircle.Radius then
-                        closestDistance = distanceFromMouse
+                    if distFromMouse < closestDistance then
+                        closestDistance = distFromMouse
                         closestPlayer = player
                     end
                 end
             end
         end
 
-        if closestPlayer then
+        if closestPlayer and closestPlayer.Character then
             local targetPos = closestPlayer.Character.HumanoidRootPart.Position
             local cameraPos = Camera.CFrame.Position
-            local direction = (targetPos - cameraPos).Unit
-
-            -- Calculate desired camera look vector
             local desiredCFrame = CFrame.new(cameraPos, targetPos)
-            -- Smooth the camera movement for natural aiming
             Camera.CFrame = Camera.CFrame:Lerp(desiredCFrame, aimbotSmoothing)
         end
     end
 
-    -- ESP logic throttled
+    -- ESP logic
     if espEnabled and espThrottle >= espInterval then
         espThrottle = 0
 
@@ -128,7 +119,6 @@ RunService.RenderStepped:Connect(function(dt)
                 local rootPart = player.Character.HumanoidRootPart
                 local screenPos, visible = Camera:WorldToViewportPoint(rootPart.Position)
 
-                -- Create ESP drawings if not exist
                 if not espDrawings[player] then
                     espDrawings[player] = {
                         box = Drawing.new("Square"),
@@ -138,30 +128,30 @@ RunService.RenderStepped:Connect(function(dt)
                         healthText = Drawing.new("Text"),
                     }
 
-                    -- Box settings
+                    -- Box setup
                     espDrawings[player].box.Color = Color3.new(0, 1, 0)
                     espDrawings[player].box.Thickness = 2
                     espDrawings[player].box.Filled = false
                     espDrawings[player].box.Visible = false
 
-                    -- Tracer line settings
+                    -- Tracer setup
                     espDrawings[player].tracer.Color = Color3.new(1, 0, 0)
                     espDrawings[player].tracer.Thickness = 1
                     espDrawings[player].tracer.Visible = false
 
-                    -- Name text settings
+                    -- Name text setup
                     espDrawings[player].nameText.Color = Color3.new(1, 1, 1)
                     espDrawings[player].nameText.Center = true
                     espDrawings[player].nameText.Outline = true
                     espDrawings[player].nameText.Visible = false
 
-                    -- Distance text settings
+                    -- Distance text setup
                     espDrawings[player].distText.Color = Color3.new(1, 1, 1)
                     espDrawings[player].distText.Center = true
                     espDrawings[player].distText.Outline = true
                     espDrawings[player].distText.Visible = false
 
-                    -- Health text settings
+                    -- Health text setup
                     espDrawings[player].healthText.Color = Color3.new(1, 0, 0)
                     espDrawings[player].healthText.Center = true
                     espDrawings[player].healthText.Outline = true
@@ -176,17 +166,17 @@ RunService.RenderStepped:Connect(function(dt)
 
                     -- Box
                     if espBoxesEnabled then
-                        local size = 50 -- You can make this dynamic based on distance
+                        local size = 50 -- you can customize size based on distance if you want
                         data.box.Size = Vector2.new(size, size)
-                        data.box.Position = screenPos2D - Vector2.new(size/2, size/2)
+                        data.box.Position = screenPos2D - Vector2.new(size / 2, size / 2)
                         data.box.Visible = true
                     else
                         data.box.Visible = false
                     end
 
-                    -- Tracer
+                    -- Tracer line
                     if espTracersEnabled then
-                        data.tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                        data.tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
                         data.tracer.To = screenPos2D
                         data.tracer.Visible = true
                     else
@@ -204,10 +194,15 @@ RunService.RenderStepped:Connect(function(dt)
 
                     -- Distance Text
                     if espDistancesEnabled then
-                        local distance = math.floor((player.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
-                        data.distText.Text = distance .. "m"
-                        data.distText.Position = screenPos2D + Vector2.new(0, 20)
-                        data.distText.Visible = true
+                        local localHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if localHRP then
+                            local distance = math.floor((rootPart.Position - localHRP.Position).Magnitude)
+                            data.distText.Text = tostring(distance) .. "m"
+                            data.distText.Position = screenPos2D + Vector2.new(0, 20)
+                            data.distText.Visible = true
+                        else
+                            data.distText.Visible = false
+                        end
                     else
                         data.distText.Visible = false
                     end
@@ -220,7 +215,6 @@ RunService.RenderStepped:Connect(function(dt)
                     else
                         data.healthText.Visible = false
                     end
-
                 else
                     -- Hide if off-screen
                     data.box.Visible = false
@@ -230,7 +224,7 @@ RunService.RenderStepped:Connect(function(dt)
                     data.healthText.Visible = false
                 end
             else
-                -- Hide for invalid targets or local player
+                -- Hide ESP for invalid targets or local player
                 if espDrawings[player] then
                     espDrawings[player].box.Visible = false
                     espDrawings[player].tracer.Visible = false
