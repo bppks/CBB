@@ -42,6 +42,113 @@ local MainSection = MainTab:CreateSection("Main")
 local ESPTab = Window:CreateTab("ESP", "Eye")
 local ESPSection = ESPTab:CreateSection("ESP Features")
 
+-- === ESP TOGGLES START HERE ===
+ESPSection:CreateToggle({
+   Name = "Enable ESP",
+   CurrentValue = false,
+   Callback = function(Value)
+      espEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP is now " .. (espEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPSection:CreateToggle({
+   Name = "ESP Tracers",
+   CurrentValue = false,
+   Callback = function(Value)
+      espTracersEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP Tracers are now " .. (espTracersEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPSection:CreateToggle({
+   Name = "ESP Boxes",
+   CurrentValue = false,
+   Callback = function(Value)
+      espBoxesEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP Boxes are now " .. (espBoxesEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPSection:CreateToggle({
+   Name = "ESP Names",
+   CurrentValue = false,
+   Callback = function(Value)
+      espNamesEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP Names are now " .. (espNamesEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPSection:CreateToggle({
+   Name = "ESP Distances",
+   CurrentValue = false,
+   Callback = function(Value)
+      espDistancesEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP Distances are now " .. (espDistancesEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPSection:CreateToggle({
+   Name = "ESP Health",
+   CurrentValue = false,
+   Callback = function(Value)
+      espHealthEnabled = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP Health is now " .. (espHealthEnabled and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPSection:CreateToggle({
+   Name = "ESP Team Check (Ignore teammates)",
+   CurrentValue = false,
+   Callback = function(Value)
+      espTeamCheck = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP Team Check is now " .. (espTeamCheck and "ON" or "OFF"),
+         Duration = 2
+      })
+   end,
+})
+
+ESPSection:CreateToggle({
+   Name = "ESP Team Colors",
+   CurrentValue = false,
+   Callback = function(Value)
+      espTeamColors = Value
+      Rayfield:Notify({
+         Title = "ESP",
+         Content = "ESP Team Colors are now " .. (espTeamColors and "ON" or "OFF"),
+         Duration = 2
+      })
+      UpdateAllESPColors()
+   end,
+})
+-- === ESP TOGGLES END HERE ===
+
 local aimbotEnabled = false
 local aimbotWallCheck = false
 local aimbotTeamCheck = false
@@ -320,8 +427,6 @@ local function UpdateAllESPColors()
    end
 end
 
--- ... (rest of ESP tab and drawing code unchanged except as below)
-
 local RunService = game:GetService("RunService")
 local espDrawings = {}
 
@@ -491,7 +596,6 @@ RunService.RenderStepped:Connect(function()
             distText.Color = espDistanceColor
             distText.Visible = espEnabled and espDistancesEnabled and onScreen and hrp
             if distText.Visible then
-               -- FIXED: Complete the Magnitude calculation for distance
                local dist = 0
                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and hrp then
                   dist = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude)
