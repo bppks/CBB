@@ -1,281 +1,244 @@
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-if not Rayfield then
-    warn("Rayfield did not load! UI will not work.")
-    return
-end
+-- Settings
+local aimbotEnabled = true
+local espEnabled = true
+local espTracersEnabled = true
+local espBoxesEnabled = true
+local espNamesEnabled = true
+local espDistancesEnabled = true
+local espHealthEnabled = true
 
--- Variables
-local aimbotEnabled, aimbotWallCheck, aimbotTeamCheck = false, false, false
-local espEnabled, espTracersEnabled, espBoxesEnabled, espNamesEnabled, espDistancesEnabled, espHealthEnabled = false, false, false, false, false, false
-local espTeamCheck, espTeamColors = false, false
+local aimbotFOV = 120 -- degrees
+local aimbotSmoothing = 0.3 -- smaller is faster snap
+local aimbotKey = Enum.KeyCode.E -- hold to aim
 
-local aimbotSensitivity = 0.2
-local aimbotKey = Enum.KeyCode.E
-local aimbotKeyHeld = false
-
--- Cached ESP drawings table
-local espDrawings = {}
-
--- FOV circle (cache)
+-- FOV Circle Setup
 local FOVCircle = Drawing.new("Circle")
-FOVCircle.Visible = false
-FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Transparency = 1
 FOVCircle.Thickness = 2
+FOVCircle.Color = Color3.new(1, 0, 0)
+FOVCircle.Radius = 150
 FOVCircle.Filled = false
-FOVCircle.Radius = 100
+FOVCircle.Visible = true
+-- Position it centered on screen initially:
 FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
--- Utility Functions
-local function IsTargetInFOV(targetPosition)
-    local screenPosition, onScreen = Camera:WorldToViewportPoint(targetPosition)
-    if onScreen then
-        local distance = (Vector2.new(screenPosition.X, screenPosition.Y) - FOVCircle.Position).Magnitude
-        return distance <= FOVCircle.Radius
-    end
-    return false
-end
-
-local function GetAllTargets()
-    local targets = {}
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
-            if not aimbotTeamCheck or player.Team ~= LocalPlayer.Team then
-                table.insert(targets, player)
-            end
-        end
-    end
-    return targets
-end
-
-local function GetTargetPosition(target)
-    if target.Character and target.Character:FindFirstChild("Head") then
-        return target.Character.Head.Position
-    end
-    return nil
-end
-
-local function IsVisible(target)
-    local char = LocalPlayer.Character
-    local head = char and char:FindFirstChild("Head")
-    local targetChar = target.Character
-    local targetHead = targetChar and targetChar:FindFirstChild("Head")
-    if not (head and targetHead) then return false end
-    local origin = head.Position
-    local direction = (targetHead.Position - origin).Unit * 500 -- limit raycast distance
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    raycastParams.FilterDescendantsInstances = {char}
-    raycastParams.IgnoreWater = true
-    local result = workspace:Raycast(origin, direction, raycastParams)
-    if not result then return true end
-    if result.Instance and result.Instance:IsDescendantOf(targetChar) then return true end
-    return false
-end
-
-local function GetClosestTarget()
-    local closestTarget, closestDistance = nil, math.huge
-    for _, target in ipairs(GetAllTargets()) do
-        local pos = GetTargetPosition(target)
-        if pos then
-            if IsTargetInFOV(pos) then
-                if not aimbotWallCheck or IsVisible(target) then
-                    local screenPos, onScreen = Camera:WorldToViewportPoint(pos)
-                    if onScreen then
-                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - FOVCircle.Position).Magnitude
-                        if dist < closestDistance then
-                            closestDistance = dist
-                            closestTarget = target
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return closestTarget
-end
-
--- Input handlers for aimbot key
-UserInputService.InputBegan:Connect(function(input, processed)
-    if not processed then
-        if (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == aimbotKey)
-            or (input.UserInputType ~= Enum.UserInputType.Keyboard and input.UserInputType == aimbotKey) then
-            aimbotKeyHeld = true
-        end
-    end
-end)
-UserInputService.InputEnded:Connect(function(input, processed)
-    if (input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == aimbotKey)
-        or (input.UserInputType ~= Enum.UserInputType.Keyboard and input.UserInputType == aimbotKey) then
-        aimbotKeyHeld = false
-    end
-end)
-
--- Throttled Aimbot loop (runs 15 times a second instead of every frame)
-coroutine.wrap(function()
-    while true do
-        if aimbotEnabled and aimbotKeyHeld then
-            local target = GetClosestTarget()
-            if target then
-                local pos = GetTargetPosition(target)
-                if pos then
-                    local screenPos, onScreen = Camera:WorldToViewportPoint(pos)
-                    if onScreen then
-                        local mouseLocation = UserInputService:GetMouseLocation()
-                        local delta = Vector2.new(screenPos.X, screenPos.Y) - mouseLocation
-                        mousemoverel(delta.X * aimbotSensitivity, delta.Y * aimbotSensitivity)
-                    end
-                end
-            end
-        end
-        wait(1/15) -- ~15 FPS for aimbot calculations, plenty smooth and less lag
-    end
-end)()
-
--- FOV Circle update, only on viewport resize
-RunService:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+-- Update FOVCircle position on viewport resize
+Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
     FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 end)
 
--- ESP Optimization: Create drawings once per player, update their position once per 10 frames
-local frameCounter = 0
-RunService.RenderStepped:Connect(function()
-    if not espEnabled then
-        -- Hide all drawings if ESP off
-        for _, data in pairs(espDrawings) do
-            if data.box then data.box.Visible = false end
-            if data.tracer then data.tracer.Visible = false end
-            if data.nameText then data.nameText.Visible = false end
-            if data.distText then data.distText.Visible = false end
-            if data.healthText then data.healthText.Visible = false end
-        end
-        return
+-- To toggle aimbot with key hold
+local aimbotActive = false
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == aimbotKey then
+        aimbotActive = true
     end
+end)
 
-    frameCounter += 1
-    if frameCounter % 6 ~= 0 then return end -- only update every 6 frames (~10 times per second at 60 FPS)
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == aimbotKey then
+        aimbotActive = false
+    end
+end)
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Head") then
-            if not espTeamCheck or player.Team ~= LocalPlayer.Team then
-                local char = player.Character
-                local headPos = char.Head.Position
-                local screenPos, onScreen = Camera:WorldToViewportPoint(headPos)
-                if onScreen then
-                    local data = espDrawings[player]
-                    if not data then
-                        -- Create drawings once
-                        data = {}
-                        if espTracersEnabled then
-                            data.tracer = Drawing.new("Line")
-                            data.tracer.Color = espTracerColor
-                            data.tracer.Thickness = 1
-                        end
-                        if espBoxesEnabled then
-                            data.box = Drawing.new("Square")
-                            data.box.Color = espBoxColor
-                            data.box.Thickness = 1
-                            data.box.Filled = false
-                        end
-                        if espNamesEnabled then
-                            data.nameText = Drawing.new("Text")
-                            data.nameText.Color = espNameColor
-                            data.nameText.Center = true
-                            data.nameText.Outline = true
-                            data.nameText.Text = player.Name
-                        end
-                        if espDistancesEnabled then
-                            data.distText = Drawing.new("Text")
-                            data.distText.Color = espDistanceColor
-                            data.distText.Center = true
-                            data.distText.Outline = true
-                        end
-                        if espHealthEnabled then
-                            data.healthText = Drawing.new("Text")
-                            data.healthText.Color = espHealthColor
-                            data.healthText.Center = true
-                            data.healthText.Outline = true
-                        end
-                        espDrawings[player] = data
-                    end
+-- Helper function: Check if character is alive & visible
+local function IsValidTarget(player)
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        return false
+    end
+    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then
+        return false
+    end
+    return true
+end
 
-                    -- Update drawing positions and visibility
-                    local screenPosVec2 = Vector2.new(screenPos.X, screenPos.Y)
-                    if data.tracer then
-                        data.tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-                        data.tracer.To = screenPosVec2
-                        data.tracer.Visible = true
-                    end
-                    if data.box then
-                        local size = 50 -- Could be dynamic based on distance if you want
-                        data.box.Position = screenPosVec2 - Vector2.new(size / 2, size / 2)
-                        data.box.Size = Vector2.new(size, size)
-                        data.box.Visible = true
-                    end
-                    if data.nameText then
-                        data.nameText.Position = screenPosVec2 + Vector2.new(0, -30)
-                        data.nameText.Text = player.Name
-                        data.nameText.Visible = true
-                    end
-                    if data.distText then
-                        local dist = math.floor((char.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
-                        data.distText.Position = screenPosVec2 + Vector2.new(0, 20)
-                        data.distText.Text = tostring(dist) .. "m"
-                        data.distText.Visible = true
-                    end
-                    if data.healthText then
-                        local humanoid = char:FindFirstChildOfClass("Humanoid")
-                        if humanoid then
-                            local health = math.floor(humanoid.Health)
-                            data.healthText.Position = screenPosVec2 + Vector2.new(0, 10)
-                            data.healthText.Text = "HP: "..health
-                            data.healthText.Visible = true
-                        else
-                            data.healthText.Visible = false
-                        end
-                    end
-                else
-                    -- Hide drawings if offscreen
-                    local data = espDrawings[player]
-                    if data then
-                        if data.box then data.box.Visible = false end
-                        if data.tracer then data.tracer.Visible = false end
-                        if data.nameText then data.nameText.Visible = false end
-                        if data.distText then data.distText.Visible = false end
-                        if data.healthText then data.healthText.Visible = false end
+-- Helper: World to screen position and visibility check
+local function GetScreenPosition(part)
+    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+    return Vector2.new(screenPos.X, screenPos.Y), onScreen and screenPos.Z > 0
+end
+
+-- Cache ESP drawings per player
+local espDrawings = {}
+
+-- Main loop timers
+local aimThrottle = 0
+local espThrottle = 0
+local aimInterval = 1/15 -- 15 times per second for aimbot
+local espInterval = 1/10 -- 10 times per second for ESP
+
+RunService.RenderStepped:Connect(function(dt)
+    aimThrottle = aimThrottle + dt
+    espThrottle = espThrottle + dt
+
+    local mouse = LocalPlayer:GetMouse()
+    local mousePos = Vector2.new(mouse.X, mouse.Y)
+
+    -- Aimbot logic throttled
+    if aimbotEnabled and aimbotActive and aimThrottle >= aimInterval then
+        aimThrottle = 0
+
+        local closestPlayer = nil
+        local closestDistance = aimbotFOV
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and IsValidTarget(player) then
+                local rootPart = player.Character.HumanoidRootPart
+                local screenPos, visible = Camera:WorldToViewportPoint(rootPart.Position)
+                if visible and screenPos.Z > 0 then
+                    local screenPos2D = Vector2.new(screenPos.X, screenPos.Y)
+                    local distanceFromMouse = (screenPos2D - mousePos).Magnitude
+
+                    -- Convert aimbotFOV degrees to pixels approx (circle radius)
+                    -- We'll use FOVCircle radius for reference
+                    if distanceFromMouse < closestDistance and distanceFromMouse <= FOVCircle.Radius then
+                        closestDistance = distanceFromMouse
+                        closestPlayer = player
                     end
                 end
-            else
-                -- Hide drawings for teammates if team check enabled
+            end
+        end
+
+        if closestPlayer then
+            local targetPos = closestPlayer.Character.HumanoidRootPart.Position
+            local cameraPos = Camera.CFrame.Position
+            local direction = (targetPos - cameraPos).Unit
+
+            -- Calculate desired camera look vector
+            local desiredCFrame = CFrame.new(cameraPos, targetPos)
+            -- Smooth the camera movement for natural aiming
+            Camera.CFrame = Camera.CFrame:Lerp(desiredCFrame, aimbotSmoothing)
+        end
+    end
+
+    -- ESP logic throttled
+    if espEnabled and espThrottle >= espInterval then
+        espThrottle = 0
+
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and IsValidTarget(player) then
+                local rootPart = player.Character.HumanoidRootPart
+                local screenPos, visible = Camera:WorldToViewportPoint(rootPart.Position)
+
+                -- Create ESP drawings if not exist
+                if not espDrawings[player] then
+                    espDrawings[player] = {
+                        box = Drawing.new("Square"),
+                        tracer = Drawing.new("Line"),
+                        nameText = Drawing.new("Text"),
+                        distText = Drawing.new("Text"),
+                        healthText = Drawing.new("Text"),
+                    }
+
+                    -- Box settings
+                    espDrawings[player].box.Color = Color3.new(0, 1, 0)
+                    espDrawings[player].box.Thickness = 2
+                    espDrawings[player].box.Filled = false
+                    espDrawings[player].box.Visible = false
+
+                    -- Tracer line settings
+                    espDrawings[player].tracer.Color = Color3.new(1, 0, 0)
+                    espDrawings[player].tracer.Thickness = 1
+                    espDrawings[player].tracer.Visible = false
+
+                    -- Name text settings
+                    espDrawings[player].nameText.Color = Color3.new(1, 1, 1)
+                    espDrawings[player].nameText.Center = true
+                    espDrawings[player].nameText.Outline = true
+                    espDrawings[player].nameText.Visible = false
+
+                    -- Distance text settings
+                    espDrawings[player].distText.Color = Color3.new(1, 1, 1)
+                    espDrawings[player].distText.Center = true
+                    espDrawings[player].distText.Outline = true
+                    espDrawings[player].distText.Visible = false
+
+                    -- Health text settings
+                    espDrawings[player].healthText.Color = Color3.new(1, 0, 0)
+                    espDrawings[player].healthText.Center = true
+                    espDrawings[player].healthText.Outline = true
+                    espDrawings[player].healthText.Visible = false
+                end
+
                 local data = espDrawings[player]
-                if data then
-                    if data.box then data.box.Visible = false end
-                    if data.tracer then data.tracer.Visible = false end
-                    if data.nameText then data.nameText.Visible = false end
-                    if data.distText then data.distText.Visible = false end
-                    if data.healthText then data.healthText.Visible = false end
+
+                if visible and screenPos.Z > 0 then
+                    local screenPos2D = Vector2.new(screenPos.X, screenPos.Y)
+                    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+
+                    -- Box
+                    if espBoxesEnabled then
+                        local size = 50 -- You can make this dynamic based on distance
+                        data.box.Size = Vector2.new(size, size)
+                        data.box.Position = screenPos2D - Vector2.new(size/2, size/2)
+                        data.box.Visible = true
+                    else
+                        data.box.Visible = false
+                    end
+
+                    -- Tracer
+                    if espTracersEnabled then
+                        data.tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                        data.tracer.To = screenPos2D
+                        data.tracer.Visible = true
+                    else
+                        data.tracer.Visible = false
+                    end
+
+                    -- Name Text
+                    if espNamesEnabled then
+                        data.nameText.Text = player.Name
+                        data.nameText.Position = screenPos2D + Vector2.new(0, -30)
+                        data.nameText.Visible = true
+                    else
+                        data.nameText.Visible = false
+                    end
+
+                    -- Distance Text
+                    if espDistancesEnabled then
+                        local distance = math.floor((player.Character.HumanoidRootPart.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
+                        data.distText.Text = distance .. "m"
+                        data.distText.Position = screenPos2D + Vector2.new(0, 20)
+                        data.distText.Visible = true
+                    else
+                        data.distText.Visible = false
+                    end
+
+                    -- Health Text
+                    if espHealthEnabled and humanoid then
+                        data.healthText.Text = "HP: " .. math.floor(humanoid.Health)
+                        data.healthText.Position = screenPos2D + Vector2.new(0, 10)
+                        data.healthText.Visible = true
+                    else
+                        data.healthText.Visible = false
+                    end
+
+                else
+                    -- Hide if off-screen
+                    data.box.Visible = false
+                    data.tracer.Visible = false
+                    data.nameText.Visible = false
+                    data.distText.Visible = false
+                    data.healthText.Visible = false
+                end
+            else
+                -- Hide for invalid targets or local player
+                if espDrawings[player] then
+                    espDrawings[player].box.Visible = false
+                    espDrawings[player].tracer.Visible = false
+                    espDrawings[player].nameText.Visible = false
+                    espDrawings[player].distText.Visible = false
+                    espDrawings[player].healthText.Visible = false
                 end
             end
         end
     end
 end)
-
--- FOV Circle toggle example
-local function ToggleFOVCircle(enabled)
-    FOVCircle.Visible = enabled
-end
-
--- Sample toggles to activate features for testing
-aimbotEnabled = true
-espEnabled = true
-espTracersEnabled = true
-espBoxesEnabled = true
-espNamesEnabled = true
-espDistancesEnabled = true
-espHealthEnabled = true
-ToggleFOVCircle(true)
