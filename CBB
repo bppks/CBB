@@ -24,7 +24,7 @@ local Window = Rayfield:CreateWindow({
     DisableBuildWarnings = false,
     ConfigurationSaving = {Enabled = false, FolderName = nil, FileName = "CBB Hub"},
     Discord = {Enabled = false, Invite = "noinvitelink", RememberJoins = true},
-    KeySystem = false,
+    KeySystem = true,
     KeySettings = {
         Title = "CBB | Key",
         Subtitle = "Key System",
