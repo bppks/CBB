@@ -251,7 +251,6 @@ end
 
 Players.PlayerRemoving:Connect(ClearESPForPlayer)
 
--- Color Picker & Toggles
 ESPTab:CreateToggle({ Name = "Enable ESP", CurrentValue = false, Callback = function(val)
     espEnabled = val
     if not val then ClearAllESP() end
@@ -302,7 +301,43 @@ ESPTab:CreateColorPicker({ Name = "Health Color", Color = espHealthColor, Callba
     espHealthColor = color
 end })
 
--- RENDER LOOP (ONLY ONE!)
+local function getCharacterCorners(char)
+    -- Returns 2D screen rectangle corners encompassing the player's character (from feet to head/arms).
+    local parts = {}
+    for _, part in ipairs(char:GetChildren()) do
+        if part:IsA("BasePart") then
+            table.insert(parts, part)
+        end
+    end
+    if #parts == 0 then return nil end
+    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+    local anyVisible = false
+    for _, part in ipairs(parts) do
+        for _, offset in ipairs({
+            Vector3.new( part.Size.X/2,  part.Size.Y/2,  part.Size.Z/2),
+            Vector3.new(-part.Size.X/2,  part.Size.Y/2,  part.Size.Z/2),
+            Vector3.new( part.Size.X/2, -part.Size.Y/2,  part.Size.Z/2),
+            Vector3.new(-part.Size.X/2, -part.Size.Y/2,  part.Size.Z/2),
+            Vector3.new( part.Size.X/2,  part.Size.Y/2, -part.Size.Z/2),
+            Vector3.new(-part.Size.X/2,  part.Size.Y/2, -part.Size.Z/2),
+            Vector3.new( part.Size.X/2, -part.Size.Y/2, -part.Size.Z/2),
+            Vector3.new(-part.Size.X/2, -part.Size.Y/2, -part.Size.Z/2)
+        }) do
+            local world = part.CFrame:PointToWorldSpace(offset)
+            local screen, vis = Camera:WorldToViewportPoint(world)
+            if vis then
+                anyVisible = true
+                minX = math.min(minX, screen.X)
+                minY = math.min(minY, screen.Y)
+                maxX = math.max(maxX, screen.X)
+                maxY = math.max(maxY, screen.Y)
+            end
+        end
+    end
+    if not anyVisible then return nil end
+    return Vector2.new(minX, minY), Vector2.new(maxX, maxY)
+end
+
 RunService.RenderStepped:Connect(function()
     if not espEnabled then
         ClearAllESP()
@@ -342,6 +377,7 @@ RunService.RenderStepped:Connect(function()
                 if not d.tracer then
                     d.tracer = Drawing.new("Line")
                     d.tracer.Thickness = 2
+                    d.tracer.Transparency = 1
                 end
                 d.tracer.Visible = true
                 d.tracer.Color = espTracerColor
@@ -351,21 +387,23 @@ RunService.RenderStepped:Connect(function()
                 d.tracer.Visible = false
             end
 
-            -- BOX
+            -- BOX (full body, not just a mini box)
             if espBoxesEnabled then
                 if not d.box then
                     d.box = Drawing.new("Square")
                     d.box.Thickness = 2
                     d.box.Filled = false
+                    d.box.Transparency = 1
                 end
-                d.box.Visible = true
-                d.box.Color = teamColor
-                local minX = math.min(headScreen.X, hrpScreen.X)
-                local minY = math.min(headScreen.Y, hrpScreen.Y)
-                local maxX = math.max(headScreen.X, hrpScreen.X)
-                local maxY = math.max(headScreen.Y, hrpScreen.Y)
-                d.box.Position = Vector2.new(minX, minY)
-                d.box.Size = Vector2.new(maxX - minX, maxY - minY)
+                local minV, maxV = getCharacterCorners(char)
+                if minV and maxV then
+                    d.box.Visible = true
+                    d.box.Color = teamColor
+                    d.box.Position = minV
+                    d.box.Size = maxV - minV
+                else
+                    d.box.Visible = false
+                end
             elseif d.box then
                 d.box.Visible = false
             end
@@ -374,14 +412,16 @@ RunService.RenderStepped:Connect(function()
             if espNamesEnabled then
                 if not d.name then
                     d.name = Drawing.new("Text")
-                    d.name.Size = 16
+                    d.name.Size = 22
                     d.name.Center = true
                     d.name.Outline = true
+                    d.name.OutlineColor = Color3.new(0,0,0)
+                    d.name.Transparency = 1
                 end
                 d.name.Visible = true
                 d.name.Color = espNameColor
                 d.name.Text = player.Name
-                d.name.Position = Vector2.new(headScreen.X, headScreen.Y - 20)
+                d.name.Position = Vector2.new(headScreen.X, headScreen.Y - 28)
             elseif d.name then
                 d.name.Visible = false
             end
@@ -390,16 +430,18 @@ RunService.RenderStepped:Connect(function()
             if espDistancesEnabled then
                 if not d.distance then
                     d.distance = Drawing.new("Text")
-                    d.distance.Size = 14
+                    d.distance.Size = 18
                     d.distance.Center = true
                     d.distance.Outline = true
+                    d.distance.OutlineColor = Color3.new(0,0,0)
+                    d.distance.Transparency = 1
                 end
                 d.distance.Visible = true
                 d.distance.Color = espDistanceColor
                 local dist = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
                     and (LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude or 0
                 d.distance.Text = string.format("%.1f m", dist)
-                d.distance.Position = Vector2.new(headScreen.X, headScreen.Y - 5)
+                d.distance.Position = Vector2.new(headScreen.X, headScreen.Y - 6)
             elseif d.distance then
                 d.distance.Visible = false
             end
@@ -408,14 +450,16 @@ RunService.RenderStepped:Connect(function()
             if espHealthEnabled then
                 if not d.health then
                     d.health = Drawing.new("Text")
-                    d.health.Size = 14
+                    d.health.Size = 18
                     d.health.Center = true
                     d.health.Outline = true
+                    d.health.OutlineColor = Color3.new(0,0,0)
+                    d.health.Transparency = 1
                 end
                 d.health.Visible = true
                 d.health.Color = espHealthColor
                 d.health.Text = humanoid and ("HP: " .. math.floor(humanoid.Health)) or "HP: ?"
-                d.health.Position = Vector2.new(headScreen.X, headScreen.Y + 10)
+                d.health.Position = Vector2.new(headScreen.X, headScreen.Y + 18)
             elseif d.health then
                 d.health.Visible = false
             end
