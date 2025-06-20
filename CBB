@@ -219,6 +219,7 @@ end)
 -- ESP Section
 -----------------------------------------------------------------
 
+--== OPTIMIZED ESP SECTION ==--
 local ESPTab = Window:CreateTab("ESP", "Eye")
 ESPTab:CreateSection("ESP Features")
 local espEnabled, espTracersEnabled, espBoxesEnabled, espNamesEnabled, espDistancesEnabled, espHealthEnabled = false, false, false, false, false, false
@@ -254,35 +255,27 @@ Players.PlayerRemoving:Connect(ClearESPForPlayer)
 ESPTab:CreateToggle({ Name = "Enable ESP", CurrentValue = false, Callback = function(val)
     espEnabled = val
     if not val then ClearAllESP() end
-    Rayfield:Notify({Title = "ESP", Content = "ESP is now " .. (espEnabled and "ON" or "OFF"), Duration = 2})
 end})
 ESPTab:CreateToggle({ Name = "Tracers", CurrentValue = false, Callback = function(val)
     espTracersEnabled = val
-    Rayfield:Notify({Title = "ESP", Content = "Tracers " .. (espTracersEnabled and "ON" or "OFF"), Duration = 2})
 end})
 ESPTab:CreateToggle({ Name = "Boxes", CurrentValue = false, Callback = function(val)
     espBoxesEnabled = val
-    Rayfield:Notify({Title = "ESP", Content = "Boxes " .. (espBoxesEnabled and "ON" or "OFF"), Duration = 2})
 end})
 ESPTab:CreateToggle({ Name = "Names", CurrentValue = false, Callback = function(val)
     espNamesEnabled = val
-    Rayfield:Notify({Title = "ESP", Content = "Names " .. (espNamesEnabled and "ON" or "OFF"), Duration = 2})
 end})
 ESPTab:CreateToggle({ Name = "Distances", CurrentValue = false, Callback = function(val)
     espDistancesEnabled = val
-    Rayfield:Notify({Title = "ESP", Content = "Distances " .. (espDistancesEnabled and "ON" or "OFF"), Duration = 2})
 end})
 ESPTab:CreateToggle({ Name = "Health", CurrentValue = false, Callback = function(val)
     espHealthEnabled = val
-    Rayfield:Notify({Title = "ESP", Content = "Health " .. (espHealthEnabled and "ON" or "OFF"), Duration = 2})
 end})
 ESPTab:CreateToggle({ Name = "Team Check (Hide teammates)", CurrentValue = false, Callback = function(val)
     espTeamCheck = val
-    Rayfield:Notify({Title = "ESP", Content = "Team Check is now " .. (espTeamCheck and "ON" or "OFF"), Duration = 2})
 end})
 ESPTab:CreateToggle({ Name = "Team Colors", CurrentValue = false, Callback = function(val)
     espTeamColors = val
-    Rayfield:Notify({Title = "ESP", Content = "Team Colors are now " .. (espTeamColors and "ON" or "OFF"), Duration = 2})
 end})
 
 ESPTab:CreateColorPicker({ Name = "Tracer Color", Color = espTracerColor, Callback = function(color)
@@ -301,41 +294,11 @@ ESPTab:CreateColorPicker({ Name = "Health Color", Color = espHealthColor, Callba
     espHealthColor = color
 end })
 
-local function getCharacterCorners(char)
-    -- Returns 2D screen rectangle corners encompassing the player's character (from feet to head/arms).
-    local parts = {}
-    for _, part in ipairs(char:GetChildren()) do
-        if part:IsA("BasePart") then
-            table.insert(parts, part)
-        end
-    end
-    if #parts == 0 then return nil end
-    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
-    local anyVisible = false
-    for _, part in ipairs(parts) do
-        for _, offset in ipairs({
-            Vector3.new( part.Size.X/2,  part.Size.Y/2,  part.Size.Z/2),
-            Vector3.new(-part.Size.X/2,  part.Size.Y/2,  part.Size.Z/2),
-            Vector3.new( part.Size.X/2, -part.Size.Y/2,  part.Size.Z/2),
-            Vector3.new(-part.Size.X/2, -part.Size.Y/2,  part.Size.Z/2),
-            Vector3.new( part.Size.X/2,  part.Size.Y/2, -part.Size.Z/2),
-            Vector3.new(-part.Size.X/2,  part.Size.Y/2, -part.Size.Z/2),
-            Vector3.new( part.Size.X/2, -part.Size.Y/2, -part.Size.Z/2),
-            Vector3.new(-part.Size.X/2, -part.Size.Y/2, -part.Size.Z/2)
-        }) do
-            local world = part.CFrame:PointToWorldSpace(offset)
-            local screen, vis = Camera:WorldToViewportPoint(world)
-            if vis then
-                anyVisible = true
-                minX = math.min(minX, screen.X)
-                minY = math.min(minY, screen.Y)
-                maxX = math.max(maxX, screen.X)
-                maxY = math.max(maxY, screen.Y)
-            end
-        end
-    end
-    if not anyVisible then return nil end
-    return Vector2.new(minX, minY), Vector2.new(maxX, maxY)
+local function getBoxBounds(headPos, hrpPos)
+    -- Calculates a reliable upright box around the character using just head and HRP
+    local top = headPos
+    local bottom = hrpPos - Vector3.new(0, 2.5, 0) -- expand box lower for feet
+    return top, bottom
 end
 
 RunService.RenderStepped:Connect(function()
@@ -366,7 +329,6 @@ RunService.RenderStepped:Connect(function()
                 espDrawings[player] = d
             end
 
-            -- TEAM COLOR
             local teamColor = espBoxColor
             if espTeamColors and player.Team and player.Team.TeamColor then
                 teamColor = player.Team.TeamColor.Color
@@ -377,7 +339,6 @@ RunService.RenderStepped:Connect(function()
                 if not d.tracer then
                     d.tracer = Drawing.new("Line")
                     d.tracer.Thickness = 2
-                    d.tracer.Transparency = 1
                 end
                 d.tracer.Visible = true
                 d.tracer.Color = espTracerColor
@@ -387,20 +348,24 @@ RunService.RenderStepped:Connect(function()
                 d.tracer.Visible = false
             end
 
-            -- BOX (full body, not just a mini box)
+            -- BOX (fast, upright, full-body)
             if espBoxesEnabled then
                 if not d.box then
                     d.box = Drawing.new("Square")
-                    d.box.Thickness = 2
+                    d.box.Thickness = 3
                     d.box.Filled = false
                     d.box.Transparency = 1
                 end
-                local minV, maxV = getCharacterCorners(char)
-                if minV and maxV then
+                local top, bottom = getBoxBounds(head.Position, hrp.Position)
+                local top2d, tVis = Camera:WorldToViewportPoint(top)
+                local bot2d, bVis = Camera:WorldToViewportPoint(bottom)
+                if tVis and bVis then
                     d.box.Visible = true
                     d.box.Color = teamColor
-                    d.box.Position = minV
-                    d.box.Size = maxV - minV
+                    local height = math.abs(top2d.Y - bot2d.Y)
+                    local width = height / 2.1
+                    d.box.Size = Vector2.new(width, height)
+                    d.box.Position = Vector2.new(top2d.X - width/2, top2d.Y)
                 else
                     d.box.Visible = false
                 end
@@ -412,16 +377,15 @@ RunService.RenderStepped:Connect(function()
             if espNamesEnabled then
                 if not d.name then
                     d.name = Drawing.new("Text")
-                    d.name.Size = 22
+                    d.name.Size = 24
                     d.name.Center = true
                     d.name.Outline = true
                     d.name.OutlineColor = Color3.new(0,0,0)
-                    d.name.Transparency = 1
                 end
                 d.name.Visible = true
                 d.name.Color = espNameColor
                 d.name.Text = player.Name
-                d.name.Position = Vector2.new(headScreen.X, headScreen.Y - 28)
+                d.name.Position = Vector2.new(headScreen.X, headScreen.Y - 32)
             elseif d.name then
                 d.name.Visible = false
             end
@@ -430,18 +394,17 @@ RunService.RenderStepped:Connect(function()
             if espDistancesEnabled then
                 if not d.distance then
                     d.distance = Drawing.new("Text")
-                    d.distance.Size = 18
+                    d.distance.Size = 20
                     d.distance.Center = true
                     d.distance.Outline = true
                     d.distance.OutlineColor = Color3.new(0,0,0)
-                    d.distance.Transparency = 1
                 end
                 d.distance.Visible = true
                 d.distance.Color = espDistanceColor
                 local dist = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
                     and (LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude or 0
                 d.distance.Text = string.format("%.1f m", dist)
-                d.distance.Position = Vector2.new(headScreen.X, headScreen.Y - 6)
+                d.distance.Position = Vector2.new(headScreen.X, headScreen.Y - 8)
             elseif d.distance then
                 d.distance.Visible = false
             end
@@ -450,16 +413,15 @@ RunService.RenderStepped:Connect(function()
             if espHealthEnabled then
                 if not d.health then
                     d.health = Drawing.new("Text")
-                    d.health.Size = 18
+                    d.health.Size = 20
                     d.health.Center = true
                     d.health.Outline = true
                     d.health.OutlineColor = Color3.new(0,0,0)
-                    d.health.Transparency = 1
                 end
                 d.health.Visible = true
                 d.health.Color = espHealthColor
                 d.health.Text = humanoid and ("HP: " .. math.floor(humanoid.Health)) or "HP: ?"
-                d.health.Position = Vector2.new(headScreen.X, headScreen.Y + 18)
+                d.health.Position = Vector2.new(headScreen.X, headScreen.Y + 16)
             elseif d.health then
                 d.health.Visible = false
             end
